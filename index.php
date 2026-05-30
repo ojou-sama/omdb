@@ -45,6 +45,11 @@ welcome to OMDB - a place to rate maps! discover new maps, check out people's ra
 					WHERE b.Mode = ? 
 					  AND b.blacklisted = 0 
 					  AND u.HideRatings = 0
+                      AND NOT EXISTS (
+                        SELECT 1 
+                        FROM user_relations rel 
+                        WHERE r.UserID = rel.UserIDTo AND rel.UserIDFrom = ? AND rel.type = 2
+                      )
 					  AND (
 						  (SELECT OnlyFriendsOnFrontPage FROM users WHERE UserID = ?) = 0
 						  OR r.UserID IN (
@@ -57,7 +62,7 @@ welcome to OMDB - a place to rate maps! discover new maps, check out people's ra
 					ORDER BY r.date DESC 
 					LIMIT 100
 				");
-				$stmt->bind_param("iiii", $mode, $userId, $userId, $userId);
+				$stmt->bind_param("iiiii", $mode, $userId, $userId, $userId, $userId);
 			} else {
 				$stmt = $conn->prepare("
 					SELECT r.*, b.DifficultyName, b.SetID 
