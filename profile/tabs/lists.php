@@ -1,6 +1,8 @@
 <?php
-include "../../base.php";
-$profileId = $_GET["id"];
+    if (file_exists("../../base.php"))
+        include "../../base.php";
+
+    $profileId = GetIntParam("id", null, "What are you trying to do man.");
 ?>
 
 <div id="tabbed-lists" class="lists">
@@ -12,6 +14,7 @@ $profileId = $_GET["id"];
         SELECT
             l.ListID,
             l.Title,
+            l.Private,
             (
                 SELECT COUNT(*)
                 FROM list_items li
@@ -19,9 +22,10 @@ $profileId = $_GET["id"];
             ) AS ItemCount
         FROM lists l
         WHERE l.UserID = ?
+        AND (l.Private = 0 OR ? = l.UserID)
     ");
 
-    $stmt->bind_param("i", $profileId);
+    $stmt->bind_param("ii", $profileId, $userId);
     $stmt->execute();
     $result = $stmt->get_result();
     $stmt->close();
@@ -57,8 +61,12 @@ $profileId = $_GET["id"];
 
             <div class="flex-child">
                 <a href="/list/?id=<?php echo $row["ListID"]; ?>">
-                    <?php echo htmlspecialchars($row["Title"]); ?>
+                    <?php echo htmlspecialchars($row["Title"], ENT_QUOTES); ?>
                 </a>
+
+                <?php if (!empty($row["Private"])) { ?>
+                    <span class="subText">| private</span>
+                <?php } ?>
 
                 <span class="subText">
                     (<?php echo $row["ItemCount"]; ?> items)
@@ -78,6 +86,7 @@ $profileId = $_GET["id"];
         SELECT
             l.ListID,
             l.Title,
+            l.Private,
             (
                 SELECT COUNT(*)
                 FROM list_items li
@@ -87,10 +96,10 @@ $profileId = $_GET["id"];
         INNER JOIN lists l
             ON l.ListID = lh.ListID
         WHERE lh.UserID = ?
-        AND l.UserID != ?
+        AND (l.Private = 0 OR ? = lh.UserID)
     ");
 
-    $stmt->bind_param("ii", $profileId, $profileId);
+    $stmt->bind_param("ii", $profileId, $userId);
     $stmt->execute();
 
     $heartedLists = $stmt->get_result();
@@ -127,8 +136,12 @@ $profileId = $_GET["id"];
 
             <div class="flex-child">
                 <a href="/list/?id=<?php echo $row["ListID"]; ?>">
-                    <?php echo htmlspecialchars($row["Title"]); ?>
+                    <?php echo htmlspecialchars($row["Title"], ENT_QUOTES); ?>
                 </a>
+
+                <?php if (!empty($row["Private"])) { ?>
+                    <span class="subText">| private</span>
+                <?php } ?>
 
                 <span class="subText">
                     (<?php echo $row["ItemCount"]; ?> items)

@@ -1,9 +1,8 @@
 <?php
-    include "../../base.php";
+    if (file_exists("../../base.php"))
+        include "../../base.php";
 
-    $profileId = $_GET["id"];
-    if (!is_numeric($profileId))
-        die("What are you trying to do man.");
+    $profileId = GetIntParam("id", null, "What are you trying to do man.");
 ?>
 
 <div id="tabbed-stats" class="tab" style="padding: 2em;">
@@ -61,7 +60,7 @@
 
             <?php
             $stmt = $conn->prepare("
-                SELECT (b.`SR` DIV 1) AS SRRange, AVG(r.`Score`) AS AverageRating, COUNT(*) AS RatingCount
+                SELECT LEAST(b.`SR` DIV 1, 12) AS SRRange, AVG(r.`Score`) AS AverageRating, COUNT(*) AS RatingCount
                 FROM `ratings` r
                 JOIN `beatmaps` b ON r.`BeatmapID` = b.`BeatmapID`
                 WHERE r.`UserID` = ?
@@ -87,7 +86,7 @@
                 <?php
                 $minSR = min(array_column($starRatings, "AverageRating"));
                 $maxSR = max(array_column($starRatings, "AverageRating"));
-                for ($SR = 0; $SR <= 13; $SR++) {
+                for ($SR = 0; $SR <= 12; $SR++) {
                     $averageRating = "none";
                     $ratingCount = 0;
 
@@ -103,7 +102,11 @@
                         continue;
                     }
 
-                    echo "<div class='year-box' value='{$value}'><span title='({$ratingCount}) {$averageRating}' style='border-bottom:1px dotted black;'>" . $SR . "*</span></div>";
+                    $label = $SR >= 12 ? "12&#9733;+" : "{$SR}&#9733;";
+
+                    echo "<a href='ratings/?id={$profileId}&r=&o=2&t=&p=1&y=all-time&sr={$SR}'>";
+                    echo "<div class='year-box' value='{$value}'><span title='({$ratingCount}) {$averageRating}' style='border-bottom:1px dotted black;'>" . $label . "</span></div>";
+                    echo "</a>";
                 }
                 ?>
             </div> <br>
@@ -156,7 +159,9 @@
                             $value = $averageRating / 5.0;
                     }
 
+                    echo "<a href='ratings/?id={$profileId}&r=&o=2&t=&p=1&y=all-time&g={$genre}'>";
                     echo "<div class='year-box' value='{$value}'><span title='({$ratingCount}) {$averageRating}' style='border-bottom:1px dotted black;font-size: 8px;'>{$genreString}</span></div>";
+                    echo "</a>";
                 }
                 ?>
             </div> <br>
@@ -212,7 +217,9 @@
                         continue;
                     }
 
+                    echo "<a href='ratings/?id={$profileId}&r=&o=2&t=&p=1&y=all-time&lang={$language}'>";
                     echo "<div class='year-box' value='{$value}'><span title='({$ratingCount}) {$averageRating}' style='border-bottom:1px dotted black;font-size: 8px;'>{$languageString}</span></div>";
+                    echo "</a>";
                 }
                 ?>
             </div> <br>
@@ -253,7 +260,7 @@
                 $minCountry = min(array_column($countries, "AverageRating"));
                 $maxCountry = max(array_column($countries, "AverageRating"));
 
-                foreach ($countries as $country) {
+                foreach ($countries as $countryCode => $country) {
                     $averageRating = $country["AverageRating"];
                     $ratingCount = $country["RatingCount"];
 
@@ -262,7 +269,10 @@
                     else
                         continue;
 
+                    $countryParam = urlencode($countryCode);
+                    echo "<a href='ratings/?id={$profileId}&r=&o=2&t=&p=1&y=all-time&c={$countryParam}'>";
                     echo "<div class='year-box' value='{$value}'><span title='({$ratingCount}) {$averageRating}' style='border-bottom:1px dotted black;font-size: 8px;'>{$country["Name"]}</span></div>";
+                    echo "</a>";
                 }
                 ?>
             </div>

@@ -1,6 +1,14 @@
 <?php
-    $mapset_id = $_GET['mapset_id'] ?? -1;
     require '../base.php';
+    $mapset_id = GetIntParam('mapset_id', -1);
+
+    // gives just the similar maps for a diff if wanted but its basically for the select box in similar maps
+    // similarMapsSeed is also set by the GetSimilarBeatmaps
+    if (isset($_GET['simdiff'])) {
+        $similarMaps = GetSimilarBeatmaps($conn, $mapset_id, 8, $similarMapsSeed, GetIntParam('simdiff'));
+        RenderSimilarMapCards($conn, $similarMaps);
+        exit;
+    }
 
     $foundSet = false;
     $stmt = $conn->prepare("SELECT * FROM `beatmaps` b JOIN beatmapsets s on b.SetID = s.SetID WHERE b.SetID=? ORDER BY b.Mode, b.SR DESC;");
@@ -10,7 +18,7 @@
     $sampleRow = $result->fetch_assoc();
     mysqli_data_seek($result, 0);
 
-    $PageTitle = htmlspecialchars($sampleRow['Title']) . " by " . GetUserNameFromId($sampleRow['CreatorID'], $conn);
+    $PageTitle = $sampleRow['Title'] . " by " . GetUserNameFromId($sampleRow['CreatorID'], $conn);
     $year = date("Y", strtotime($sampleRow['DateRanked']));
     $isLoved = $sampleRow["Status"] == 4;
     $isGraveyarded = $sampleRow["Status"] == -2;
@@ -107,7 +115,7 @@ GROUP BY
 	}
 </style>
 
-<center><h1><a target="_blank" rel="noopener noreferrer" href="https://osu.ppy.sh/s/<?php echo $sampleRow['SetID']; ?>"><?php echo $sampleRow['Artist'] . " - " . htmlspecialchars($sampleRow['Title']) . "</a> by <a href='/profile/{$sampleRow['CreatorID']}'>" .  GetUserNameFromId($sampleRow['CreatorID'], $conn); ?></a></h1></center>
+<center><h1><a target="_blank" rel="noopener noreferrer" href="https://osu.ppy.sh/s/<?php echo $sampleRow['SetID']; ?>"><?php echo htmlspecialchars($sampleRow['Artist'] . " - " . $sampleRow['Title'], ENT_QUOTES) . "</a> by <a href='/profile/{$sampleRow['CreatorID']}'>" .  htmlspecialchars(GetUserNameFromId($sampleRow['CreatorID'], $conn), ENT_QUOTES); ?></a></h1></center>
 
 <div class="flex-container column-when-mobile-container">
     <div class="flex-child column-when-mobile" style="text-align: center;">
@@ -174,8 +182,9 @@ GROUP BY
                     echo "<tr><td class='text-center' style='vertical-align: middle;'>$modeString</td><td style='width:100%;vertical-align: middle;'>";
                     $nominatorLinks = array();
                     foreach ($modeNominators as $nominatorID => $nominatorName) {
-                        $nominatorLinks[] = "<a href='/profile/$nominatorID'><img src='https://s.ppy.sh/a/$nominatorID' style='height:24px;width:24px;' title='$nominatorName'></a>
-                                     <a href='/profile/$nominatorID'>$nominatorName</a>";
+                        $escapedNominatorName = htmlspecialchars($nominatorName, ENT_QUOTES);
+                        $nominatorLinks[] = "<a href='/profile/$nominatorID'><img src='https://s.ppy.sh/a/$nominatorID' style='height:24px;width:24px;' title='$escapedNominatorName'></a>
+                                     <a href='/profile/$nominatorID'>$escapedNominatorName</a>";
                     }
                     echo implode(" ", $nominatorLinks);
                     echo "</td></tr>";
@@ -257,7 +266,7 @@ while($row = $result->fetch_assoc()) {
                                         WHERE r.BeatmapID = ?;");
         $stmt->bind_param("i", $row["BeatmapID"]);
         $stmt->execute();
-        $averageRating = number_format($stmt->get_result()->fetch_assoc()["avg_score"], 2);
+        $averageRating = number_format($stmt->get_result()->fetch_assoc()["avg_score"] ?? 0, 2);
     }
 
     $stmt = $conn->prepare("SELECT COUNT(*) as count, AVG(Score) as avg FROM `ratings` WHERE `BeatmapID`=? AND `UserID` IN (SELECT `UserIDTo` FROM `user_relations` WHERE `UserIDFrom` = ? AND `type`=1)");
@@ -292,7 +301,7 @@ while($row = $result->fetch_assoc()) {
                 <?php echo getModeIcon($row['Mode']); ?>
             </span>
             <a href="https://osu.ppy.sh/b/<?php echo $row['BeatmapID']; ?>" target="_blank" rel="noopener noreferrer" <?php if ($row["ChartRank"] <= 250 && !is_null($row["ChartRank"])){ echo "class='bolded'"; }?>>
-                <?php echo mb_strimwidth(htmlspecialchars($row['DifficultyName']), 0, 35, "..."); ?>
+                <?php echo htmlspecialchars(mb_strimwidth($row['DifficultyName'], 0, 35, "..."), ENT_QUOTES); ?>
             </a>
             <a href="osu://b/<?php echo $row['BeatmapID']; ?>"><i class="icon-download-alt">&ZeroWidthSpace;</i></a>
             <span class="subText"><?php echo number_format((float)$row['SR'], 2, '.', ''); ?>*</span>
@@ -405,7 +414,7 @@ while($row = $result->fetch_assoc()) {
 				$selectStmt->execute();
 				$tags_result = $selectStmt->get_result();
 				$tags_row = $tags_result->fetch_assoc();
-				$allTags = htmlspecialchars($tags_row['AllTags'], ENT_COMPAT, "ISO-8859-1");
+				$allTags = htmlspecialchars($tags_row['AllTags'] ?? "", ENT_QUOTES, "ISO-8859-1");
 				$selectStmt->close();
 				?>
 				<span class="identifier" style="display: inline-block;">
@@ -508,6 +517,68 @@ while($row = $result->fetch_assoc()) {
 </div>
 <hr style="margin-top: 0">
 
+<?php
+    $similarMaps = GetSimilarBeatmaps($conn, $mapset_id, 8, $similarMapsSeed);
+    if (!empty($similarMaps)) {
+?>
+<h4 style="margin-bottom: 0;">
+    People who liked 
+    <?php
+        $stmt = $conn->prepare("SELECT BeatmapID, DifficultyName FROM beatmaps WHERE SetID = ? AND Blacklisted = 0 ORDER BY Mode, SR DESC");
+        $stmt->bind_param("i", $mapset_id);
+        $stmt->execute();
+        $diffResult = $stmt->get_result();
+        $diffs = $diffResult->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+
+        if (count($diffs) === 1) {
+            echo "<b>[" . htmlspecialchars(mb_strimwidth($diffs[0]["DifficultyName"], 0, 35, "..."), ENT_QUOTES) . "]</b>";
+        } else {
+            echo '<select id="similarMapsDiffSelect">';
+            foreach ($diffs as $diffRow) {
+                $selected = $diffRow["BeatmapID"] == $similarMapsSeed["BeatmapID"] ? " selected" : "";
+                echo "<option value=\"{$diffRow["BeatmapID"]}\"{$selected}>[" . htmlspecialchars(mb_strimwidth($diffRow["DifficultyName"], 0, 35, "..."), ENT_QUOTES) . "]</option>";
+            }
+            echo '</select>';
+        }
+    ?>
+    also liked:
+    <span class="badge">BETA</span>
+    <span class="tooltip-wrapper">
+        <span style="width:1em;height:1em;display:flex;align-items:center;justify-content:center;border-radius:50%;border:1px solid gray;color:gray;font-size:0.7em;">?</span>
+        <span class="tooltip-box" style="right:auto;">
+            This is WIP if u wanna help or just play with the weights and settings, check out
+            <a href="/labs/">Labs</a>.
+        </span>
+    </span>
+</h4>
+<div id="similarMapsContainer" class="flex-container" style="width:100%;background-color:DarkSlateGrey;padding:0px;">
+    <br>
+    <?php RenderSimilarMapCards($conn, $similarMaps); ?>
+</div>
+<script>
+    const similarMapsDiffSelect = document.getElementById('similarMapsDiffSelect');
+    if (similarMapsDiffSelect) {
+        similarMapsDiffSelect.addEventListener('change', function() {
+            const container = document.getElementById('similarMapsContainer');
+            container.style.opacity = 0.5;
+
+            const xhttp = new XMLHttpRequest();
+            xhttp.onreadystatechange = function() {
+                if (xhttp.readyState === XMLHttpRequest.DONE) {
+                    if (xhttp.status === 200)
+                        container.innerHTML = "<br>" + xhttp.responseText;
+                    container.style.opacity = 1;
+                }
+            };
+            xhttp.open("GET", "?simdiff=" + this.value, true);
+            xhttp.send();
+        });
+    }
+</script>
+<hr>
+<?php } ?>
+
 <div class="flex-container column-when-mobile-container">
     <div class="flex-child column-when-mobile" style="width:40%;">
         <?php if ($credits) { ?>
@@ -516,9 +587,10 @@ while($row = $result->fetch_assoc()) {
             <ul>
 			<?php
 				foreach ($credits as $credit) {
+					$escapedCreditName = htmlspecialchars($credit['Username'], ENT_QUOTES);
 					echo "<li>
-					<a href='/profile/{$credit['UserID']}'><img src='https://s.ppy.sh/a/{$credit['UserID']}' style='height:24px;width:24px;' title='{$credit['Username']}'></a>
-                    <a href='/profile/{$credit['UserID']}'>{$credit['Username']}</a>
+					<a href='/profile/{$credit['UserID']}'><img src='https://s.ppy.sh/a/{$credit['UserID']}' style='height:24px;width:24px;' title='{$escapedCreditName}'></a>
+                    <a href='/profile/{$credit['UserID']}'>{$escapedCreditName}</a>
 					<br>
 					<span class='subText'>{$credit['Roles']}</span>
 					</li>";
@@ -529,15 +601,16 @@ while($row = $result->fetch_assoc()) {
         <hr />
 		<?php } ?>
         <?php
-            $stmt = $conn->prepare("SELECT l.ListID, l.Title, l.UserID
-                                          FROM lists l
-                                          LEFT JOIN list_items li ON l.ListID = li.ListID
-                                          WHERE (li.SubjectID = ? AND li.Type = 'beatmapset')
-                                             OR (li.SubjectID IN (SELECT BeatmapID FROM beatmaps WHERE SetID = ?) AND li.Type = 'beatmap')
-                                          GROUP BY l.ListID HAVING COUNT(l.ListID) >= 1
-                                          LIMIT 10;");
+                $stmt = $conn->prepare("SELECT l.ListID, l.Title, l.UserID, l.Private
+                FROM lists l
+                LEFT JOIN list_items li ON l.ListID = li.ListID
+                WHERE ((li.SubjectID = ? AND li.Type = 'beatmapset')
+                    OR (li.SubjectID IN (SELECT BeatmapID FROM beatmaps WHERE SetID = ?) AND li.Type = 'beatmap'))
+                    AND (l.Private = 0 OR l.UserID = ?)
+                GROUP BY l.ListID HAVING COUNT(l.ListID) >= 1
+                LIMIT 10;");
 
-            $stmt->bind_param("ii", $mapset_id, $mapset_id);
+                $stmt->bind_param("iii", $mapset_id, $mapset_id, $userId);
             $stmt->execute();
             $result = $stmt->get_result();
             $stmt->close();
@@ -559,8 +632,8 @@ while($row = $result->fetch_assoc()) {
                             <a href="/list/?id=<?php echo $row["ListID"]; ?>"><img src="<?php echo $imageUrl; ?>" style="height:24px;width:24px;object-fit:cover;object-position:center;"</a>
                         </div>
                         <div class="flex-child">
-                            <a href="/list/?id=<?php echo $row["ListID"]; ?>"><?php echo htmlspecialchars($row["Title"]); ?></a>
-                            <span class="subText">by <a href="/profile/<?php echo $row["UserID"]; ?>"><?php echo GetUserNameFromId($row["UserID"], $conn); ?></a></span>
+                            <a href="/list/?id=<?php echo $row["ListID"]; ?>"><?php echo htmlspecialchars($row["Title"], ENT_QUOTES); ?></a>
+                            <span class="subText">by <a href="/profile/<?php echo $row["UserID"]; ?>"><?php echo htmlspecialchars(GetUserNameFromId($row["UserID"], $conn), ENT_QUOTES); ?></a> <?php if (!empty($row["Private"])) echo " | private"; ?></span>
                         </div>
                     </div>
                     <?php
@@ -589,10 +662,10 @@ while($row = $result->fetch_assoc()) {
                     ?>
                     <div class="flex-container flex-child commentHeader">
                         <div class="flex-child <?php if ($is_blocked) echo "faded"; ?>" style="height:24px;width:24px;">
-                            <a href="/profile/<?php echo $row["UserID"]; ?>"><img src="https://s.ppy.sh/a/<?php echo $row["UserID"]; ?>" style="height:24px;width:24px;" title="<?php echo GetUserNameFromId($row["UserID"], $conn); ?>"/></a>
+                            <a href="/profile/<?php echo $row["UserID"]; ?>"><img src="https://s.ppy.sh/a/<?php echo $row["UserID"]; ?>" style="height:24px;width:24px;" title="<?php echo htmlspecialchars(GetUserNameFromId($row["UserID"], $conn), ENT_QUOTES); ?>"/></a>
                         </div>
                         <div class="flex-child <?php if ($is_blocked) echo "faded"; ?>">
-                            <a href="/profile/<?php echo $row["UserID"]; ?>"><?php echo GetUserNameFromId($row["UserID"], $conn); ?></a>
+                            <a href="/profile/<?php echo $row["UserID"]; ?>"><?php echo htmlspecialchars(GetUserNameFromId($row["UserID"], $conn), ENT_QUOTES); ?></a>
                         </div>
                         <div class="flex-child" style="margin-left:auto;">
                             <?php
@@ -699,7 +772,7 @@ while($row = $result->fetch_assoc()) {
                     foreach ($heartedUserIds as $uid) {
                         $heartedUsernames[] =
                             "<span style='white-space: nowrap;'>" .
-                            htmlspecialchars(GetUserNameFromId($uid, $conn)) .
+                            htmlspecialchars(GetUserNameFromId($uid, $conn), ENT_QUOTES) .
                             "</span>";
                     }
 
@@ -708,10 +781,10 @@ while($row = $result->fetch_assoc()) {
 					?>
                     <div class="flex-container flex-child commentHeader">
                         <div class="flex-child <?php if ($is_blocked) echo "faded"; ?>" style="height:24px;width:24px;">
-                            <a href="/profile/<?php echo $row["UserID"]; ?>"><img src="https://s.ppy.sh/a/<?php echo $row["UserID"]; ?>" style="height:24px;width:24px;" title="<?php echo GetUserNameFromId($row["UserID"], $conn); ?>"/></a>
+                            <a href="/profile/<?php echo $row["UserID"]; ?>"><img src="https://s.ppy.sh/a/<?php echo $row["UserID"]; ?>" style="height:24px;width:24px;" title="<?php echo htmlspecialchars(GetUserNameFromId($row["UserID"], $conn), ENT_QUOTES); ?>"/></a>
                         </div>
                         <div class="flex-child <?php if ($is_blocked) echo "faded"; ?>">
-                            <a href="/profile/<?php echo $row["UserID"]; ?>"><?php echo GetUserNameFromId($row["UserID"], $conn); ?></a>
+                            <a href="/profile/<?php echo $row["UserID"]; ?>"><?php echo htmlspecialchars(GetUserNameFromId($row["UserID"], $conn), ENT_QUOTES); ?></a>
                         </div>
                         <div class="flex-child" style="margin-left:auto;">
                             <?php

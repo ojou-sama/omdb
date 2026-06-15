@@ -18,8 +18,8 @@
 
 	$code = $_GET["code"];
 	$fields = json_encode(array(
-		"client_id" => $clientID,
-		"client_secret" => $clientSecret,
+		"client_id" => $env['OSU_CLIENT_ID'],
+		"client_secret" => $env['OSU_CLIENT_SECRET'],
 		"code" => $code,
 		"grant_type" => "authorization_code",
 		"redirect_uri" => relUrl("/callback.php"),
@@ -97,12 +97,12 @@
 
 	if ($result && $result->num_rows == 0) {
 		$stmt = $conn->prepare("INSERT INTO `mappernames` (UserID, Username, Country) VALUES (?, ?, ?);");
-		$stmt->bind_param("iss", $userId, $username, $country->code);
+		$stmt->bind_param("iss", $userId, $username, $country["code"]);
 		$stmt->execute();
 		$stmt->close();
 	} else {
 		$stmt = $conn->prepare("UPDATE `mappernames` SET `Username` = ?, `Country` = ? WHERE `UserID` = ?");
-		$stmt->bind_param("ssi", $username, $country->code, $userId);
+		$stmt->bind_param("ssi", $username, $country["code"], $userId);
 		$stmt->execute();
 		$stmt->close();
 	}

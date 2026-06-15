@@ -1,7 +1,8 @@
 <?php
-    include_once 'sensitiveStrings.php';
+    include_once 'env.php';
 	include_once 'functions/bbcode.php';
 	include_once 'functions/access.php';
+	include_once 'functions/recommendations.php';
 
 	/**
 	 * Sends a redirect header pointed to the given relative location (using the
@@ -13,12 +14,26 @@
 	}
 
 	/**
+	 * Reads int parameter from req
+	 * Dies if the value exists but not numeric
+	 * OR if it is missing and no default was given.
+	 */
+	function GetIntParam(string $key, ?int $default = null, ?string $error = null): int {
+		$value = $_POST[$key] ?? $_GET[$key] ?? $default;
+
+		if ($value === null || !is_numeric($value))
+			die($error ?? "Invalid '{$key}' parameter");
+
+		return (int)$value;
+	}
+
+	/**
 	 * Returns the requested relative location (using the environment variable
 	 * PUBLIC_URL to determine the host) as a string.
 	 */
 	function relUrl(string $path = "/") {
         global $env;
-		$publicUrl = $env["PUBLIC_URL"] ?? "https://omdb.nyahh.net";
+		$publicUrl = $env["PUBLIC_URL"];
 		return $publicUrl . $path;
 	}
 
@@ -42,7 +57,28 @@
 
 		return json_decode($response, true);
 	}
-	
+
+	function GetBeatmapsetDataOsuApi(string $token, int $id){
+		$curl = curl_init();
+
+		curl_setopt_array($curl, array(
+		  CURLOPT_URL => 'https://osu.ppy.sh/api/v2/beatmapsets/' . strval($id),
+		  CURLOPT_HTTPHEADER => ['Accept: application/json', 'Content-Type: application/json', 'Authorization: Bearer ' . $token],
+		  CURLOPT_RETURNTRANSFER => true,
+	      CURLOPT_ENCODING => '',
+	      CURLOPT_MAXREDIRS => 10,
+	      CURLOPT_TIMEOUT => 0,
+	      CURLOPT_FOLLOWLOCATION => true,
+	      CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+	      CURLOPT_CUSTOMREQUEST => 'GET',
+		));
+
+		$response = curl_exec($curl);
+		curl_close($curl);
+
+		return json_decode($response, true);
+	}
+
 	function GetOwnUserData(string $token){
 		$curl = curl_init();
 	
@@ -101,11 +137,11 @@
 	}
 	
 	function GetUserDataOsuApi(int $id){
-        global $apiV1Key;
+		global $env;
 		$curl = curl_init();
 	
 		curl_setopt_array($curl, array(
-		  CURLOPT_URL => "https://osu.ppy.sh/api/get_user?k={$apiV1Key}&u=" . strval($id),
+		  CURLOPT_URL => 'https://osu.ppy.sh/api/get_user?k=' . $env['OSU_API_V1_KEY'] . '&u=' . strval($id),
 		  CURLOPT_HTTPHEADER => ['Accept: application/json', 'Content-Type: application/json'],
 		  CURLOPT_RETURNTRANSFER => true,
 	      CURLOPT_ENCODING => '',
@@ -172,17 +208,18 @@
 			}
 		}
 		
+		$username = "ID => " . strval($id);
 		try {
-        $userData = GetUserDataOsuApi($id);
-		if (!$userData)
-			return "ID => " . strval($id);
-		$username = $userData["username"];
-        $country = $userData["country"];
+			$userData = GetUserDataOsuApi($id);
+			if ($userData) {
+				$username = $userData["username"];
+				$country = $userData["country"];
 
-		$stmt = $conn->prepare("REPLACE INTO `mappernames` VALUES (?, ?, ?)");
-		$stmt->bind_param("iss", $id, $username, $country);
-		$stmt->execute();
-		$stmt->close();
+				$stmt = $conn->prepare("REPLACE INTO `mappernames` VALUES (?, ?, ?)");
+				$stmt->bind_param("iss", $id, $username, $country);
+				$stmt->execute();
+				$stmt->close();
+			}
 		} catch (Exception $e) {
 			unset($e);
 		}
@@ -441,7 +478,7 @@ function getFullCountryName($code) {
             'ZW' => 'Zimbabwe',
         );
 
-        return $countries[$code];
+        return $countries[$code] ?? null;
     }
 
 	function ParseCommentLinks($conn, $string) {
@@ -458,9 +495,9 @@ function getFullCountryName($code) {
 			$mapID = $matches['id2'] ?? '';
 
 			if ($mapID != '')
-				return '<a href="' . $matches[0] . '">/b/' . $mapID . '</a>';
+				return '<a href="' . htmlspecialchars($matches[0], ENT_QUOTES) . '">/b/' . $mapID . '</a>';
 			else
-				return '<a href="' . $matches[0] . '">/s/' . $setID . '</a>';
+				return '<a href="' . htmlspecialchars($matches[0], ENT_QUOTES) . '">/s/' . $setID . '</a>';
 
 		}, $string);
 
@@ -475,7 +512,7 @@ function getFullCountryName($code) {
 
 			if (isset($beatmap)){
 				$mapper = GetUserNameFromId($beatmap["CreatorID"], $conn);
-				return "<a href='{$matches[0]}'> {$beatmap["Artist"]} - {$beatmap["Title"]} ({$mapper})</a>";
+				return "<a href='{$matches[0]}'> " . htmlspecialchars("{$beatmap["Artist"]} - {$beatmap["Title"]} ({$mapper})", ENT_QUOTES) . "</a>";
 			}
 
 			return $matches[0];
@@ -509,6 +546,7 @@ function getFullCountryName($code) {
 		$user = $result->fetch_assoc();
 		$stmt->close();
 
+		$hint = "";
         switch($score){
             case 0:
                 $hint = $user["Custom00Rating"];
@@ -546,8 +584,8 @@ function getFullCountryName($code) {
         }
 
 		$starString = RenderRating($score);
-		if ($hint == "" || !isset($hint))
-			return $starString;
+		if (empty($hint))
+    		return $starString;
 
         $hint = htmlspecialchars($hint, ENT_QUOTES);
         echo "<span title='{$hint}' style='border-bottom:1px dotted white;'>{$starString}</span>";
@@ -566,7 +604,7 @@ function getFullCountryName($code) {
 		$numerator = $n * $sum_xy - $sum_x * $sum_y;
 		$denominator = sqrt(($n * $sum_x_sq - pow($sum_x, 2)) * ($n * $sum_y_sq - pow($sum_y, 2)));
 		if ($denominator == 0) {
-			return -1;
+			return null;
 		}
 		return $numerator / $denominator;
 	}
@@ -700,7 +738,7 @@ function getFullCountryName($code) {
 
 		while ($creator = $creators->fetch_assoc()){
 			$creatorName = GetUserNameFromId($creator['CreatorID'], $conn);
-			echo "<a href='/profile/{$creator['CreatorID']}'>{$creatorName}</a>";
+			echo "<a href='/profile/{$creator['CreatorID']}'>" . htmlspecialchars($creatorName, ENT_QUOTES) . "</a>";
 
 			$index++;
 			if ($index < $creatorCount - 1)

@@ -3,8 +3,8 @@
 	require "../base.php";
     require '../header.php';
 
-    $year = $_GET["y"] ?? 2026;
-    $page = $_GET['p'] ?? 1;
+    $year = ($_GET["y"] ?? "") === "all-time" ? "all-time" : GetIntParam("y", 2026, "NOO");
+    $page = GetIntParam('p', 1, "NOO");
     $yearString = $year == "all-time" ? 'All Time' : $year;
 
     $result = $conn->query("SELECT DescriptorID, Name FROM descriptors WHERE Usable = 1");
@@ -227,7 +227,7 @@
             <label for="hideRated">Hide already rated maps</label>
             <br>
             <input type="checkbox" id="friends" name="friends" onchange="updateChart();">
-            <label for="friends">Only include friend ratings<br> <span class="subText">Only the <b>Highest Rated</b> and <b>Lowest Rated</b> sort works with the friend filter right now.</span></label><br>
+            <label for="friends">Only include friend ratings<br></label>
             <?php } ?> <br>
 
             Exclude: <br>
@@ -264,7 +264,7 @@
 
     var selectedDescriptors = [];
     <?php foreach ($selectedDescriptors as $descriptor): ?>
-    selectedDescriptors.push({ id: <?php echo $descriptor['id']; ?>, name: '<?php echo $descriptor['name']; ?>' });
+    selectedDescriptors.push({ id: <?php echo (int)$descriptor['id']; ?>, name: <?php echo json_encode($descriptor['name']); ?> });
     <?php endforeach; ?>
 
     var genres = {
